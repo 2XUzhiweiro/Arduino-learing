@@ -1,0 +1,156 @@
+/*2020.11.8
+ * Ps2手柄控制小车前进、后退、左右转，四键调速
+ * Ps2手柄控制舵机四角度旋转
+ */
+#include <PS2X_lib.h>                                         //ps2库函数
+#include <Servo.h>                                            //舵机库函数
+
+PS2X ps2x;                                                    //新建ps2接收机控制类
+Servo myservo;                                                //新建舵机控制类
+
+int val = 126;                    //限速，防止pwm值超过255
+int valA = 0;                     //a电机pwm速度控制变量
+int valB = 0;                     //b电机pwm速度控制变量
+
+#define pressures   false                                     //压力读数关（按下即按键值最大，不会根据按键力度大小改变键值）
+#define rumble      false                                     //手柄震动关
+
+int error = 0;                    //手柄接收机匹配错误代码变量，0为无错误
+byte type = 0;                    //手柄回传型号变量，表示手柄型号信息
+byte vibrate = 0;                 //震动力度大小变量
+int pos;                          //舵机转动角度变量，0~180度
+
+/*******ps2手柄接收机与Arduino连线************/
+#define PS2_DAT        13  
+#define PS2_CMD        11  
+#define PS2_SEL        10  
+#define PS2_CLK        12  
+
+/*********电机驱动模块（L298N）与Arduino连线*********/
+int ENA = 2;
+int EA1 = 3;
+int EA2 = 4;
+int ENB = 7;
+int EB1 = 5;
+int EB2 = 6;
+
+void setup()                                    //void setup()   初始化函数
+{
+  myservo.attach(9);                            //舵机信号线接Arduino数字9号端口（带PWM输出）
+  Serial.begin(57600);                          //通信波特率
+  pinMode(ENA, OUTPUT);                         
+  pinMode(EA1, OUTPUT);
+  pinMode(EA2, OUTPUT);                         //Arduino各引脚初始化，均为输出（OUTPUT）模式
+  pinMode(ENB, OUTPUT);
+  pinMode(EB1, OUTPUT);
+  pinMode(EB2, OUTPUT);
+  delay(300);
+  error = ps2x.config_gamepad(PS2_CLK, PS2_CMD, PS2_SEL, PS2_DAT, pressures, rumble);           //获取错误代码，error值，0为无错误
+  type = ps2x.readType();                                                                       //获取手柄型号信息
+}
+
+void loop()                                                     //void loop() 主函数
+{
+  if (type == 2) ;
+  else
+  {
+    ps2x.read_gamepad(false, vibrate);                          //手柄震动关
+    /**************获取左右摇杆上下数值***************/
+    int Y1 = ps2x.Analog(PSS_LY);
+    int Y2 = ps2x.Analog(PSS_RY);
+    /**************左摇杆控制左轮前进后退*****************/
+    valA = abs(Y1 - 127) * 2 - val;                             //PWM调速算法
+    valA = valA>0?valA:0;
+    if (Y1 < 100) 
+    {
+      go_l();               //Y1小于100，则左摇杆上推，左轮前进
+    } 
+    else if (Y1 > 150) 
+    {
+      refund_l();           //Y1大于150，则左摇杆下推，左轮后退
+    } else 
+    {
+      pause_l();            //其余情况，左摇杆未拨动，左电机暂停
+    }
+    /**************右摇杆控制右轮前进后退*****************/
+    valB = abs(Y2 - 127) * 2 - val;                         //PWM调速算法
+    valB = valB>0?valB:0;
+    if (Y2 < 100) 
+    {
+      go_r();             //Y2小于100，则右摇杆上推，右轮前进
+    } 
+    else if (Y2 > 150) 
+    {
+      refund_r();         //Y2大于150，则右摇杆下推，右轮后退
+    } 
+    else 
+    {
+      pause_r();          //其余情况，右摇杆未拨动，右电机暂停
+    }
+
+    /*********智能车速度限制*********/
+    if (ps2x.ButtonReleased(PSB_SQUARE))             //1档□形（最低档位）
+      val = 126;
+    if (ps2x.Button(PSB_TRIANGLE))                   //2档△形
+      val = 76;
+    if (ps2x.ButtonPressed(PSB_CIRCLE))              //3档○形
+      val = 36;
+    if (ps2x.NewButtonState(PSB_CROSS))              //4档×形
+      val = 0;
+    /**************舵机角度*****************/
+    if(ps2x.Button(PSB_PAD_LEFT))                     //左侧按键，左按键为1档舵机角度（最低），抓小球
+    {
+      myservo.write(63);
+    }
+    if(ps2x.Button(PSB_PAD_UP))
+    {
+      myservo.write(77);                              //上按键为2档舵机角度，抓大球
+    }
+    if(ps2x.Button(PSB_PAD_RIGHT))
+    {
+      myservo.write(120);                             //右按键为3档舵机角度，预抓球对准
+    }
+    if(ps2x.Button(PSB_PAD_DOWN))
+    {
+      myservo.write(180);                             //下按键为4档舵机角度，车身轴距最短
+    }
+
+  }
+  delay(50);
+}
+
+//自定义子函数
+//右轮前进
+void go_r() {
+  analogWrite(ENA, valA);         //PWM调速值0~255
+  digitalWrite(EA1, HIGH);        //逻辑值，一高一低正转
+  digitalWrite(EA2, LOW);
+}
+//右轮后退
+void refund_r() {
+  analogWrite(ENA, valA);
+  digitalWrite(EA1, LOW);         //逻辑值，一低一高反转
+  digitalWrite(EA2, HIGH);
+}
+//右轮停止
+void pause_r() {
+  digitalWrite(EA1, LOW);
+  digitalWrite(EA2, LOW);      //逻辑值，同时低电平（0V）电机不转
+}
+//左轮前进
+void go_l() {
+  analogWrite(ENB, valB);
+  digitalWrite(EB1, LOW);
+  digitalWrite(EB2, HIGH);
+}
+//左轮后退
+void refund_l() {
+  analogWrite(ENB, valB);
+  digitalWrite(EB1, HIGH);
+  digitalWrite(EB2, LOW);
+}
+//左轮停止
+void pause_l() {
+  digitalWrite(EB1, LOW);
+  digitalWrite(EB2, LOW);
+}
