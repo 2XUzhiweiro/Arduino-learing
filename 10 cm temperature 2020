@@ -1,0 +1,107 @@
+/*2020.10.11
+ * XUZHIWEI
+ * 10cm测温，oled显示
+ */
+#include "Wire.h"  //IIC头文件
+#include "U8glib.h"//屏幕头文件
+
+U8GLIB_SSD1306_128X64 u8g(U8G_I2C_OPT_NONE|U8G_I2C_OPT_DEV_0);  // I2C / TWI 
+//屏幕种类
+int key_1 = 8;//升高温度上限按键
+int key_2 = 7;//降低温度下限按键
+int beep_1 = 9;//蜂鸣器引脚定义
+int key_liqud=6;
+
+uint16_t result;//温度处理中转值
+float temp;//实时温度变量
+float H=38.0;//温度上限
+
+void draw(void) {  
+  u8g.setFont(u8g_font_unifont);//显示字体
+  u8g.drawStr( 0, 12, "Hello 2020 TI !");//x:字符左下角横坐标，y：字符左下角纵坐标
+  u8g.drawStr( 0, 35, "Temp:");//固定字符
+  u8g.drawStr( 0, 55, "Danger:");
+  u8g.drawStr( 87, 27, "*");
+  u8g.drawStr( 95, 35, "C");
+  u8g.drawStr( 102, 47, "*");
+  u8g.drawStr( 110, 55, "C");
+  }
+
+void key(void) 
+{
+  if (digitalRead(key_1) == LOW)
+  { // 若按键被按下
+       delay(900); //判断是否长按
+      if (digitalRead(key_1) == LOW) // 若按键长按
+      {      
+          H = H+1;//温度上限加0.1
+      }
+      //短按
+      else
+      {
+        H = H+0.1;//温度上限加0.1
+      }
+  }
+  
+  if (digitalRead(key_2) == LOW)
+  { // 若按键被按下
+       delay(900); //判断是否长按
+      if (digitalRead(key_2) == LOW) // 若按键长按
+      {      
+          H = H-1;//温度上限减0.1
+      }
+      //短按
+      else
+      {
+        H = H-0.1;//温度上限减0.1
+      }
+  }
+}
+
+void beep(void) {//蜂鸣器函数
+  if(temp > H){
+    digitalWrite(beep_1,HIGH);//超过上限报警，反之不报警
+  }
+  else{
+    digitalWrite(beep_1,LOW);
+  }
+}
+ 
+void setup() {
+  Wire.begin();         // 加入IIC总线
+  Serial.begin(9600);  // 波特率
+  pinMode(beep_1, OUTPUT);//各元件输入输出模式
+  pinMode(key_1, INPUT_PULLUP);//设置按键管脚上拉出入模式
+  pinMode(key_2, INPUT_PULLUP);
+  pinMode(key_liqud, INPUT_PULLUP);
+}
+
+void loop() {
+  //温度IIC获取
+  Wire.beginTransmission(0x5A);
+  Wire.write(0x07);                // sends instruction byte
+  Wire.endTransmission(false);     // stop transmitting
+  Wire.requestFrom(0x5A, 3);   //Send data n-bytes read
+  result = Wire.read();        //Receive DATA
+  result |= Wire.read() << 8;  //Receive DATA
+  uint8_t pec = Wire.read();
+  if(digitalRead(key_liqud) == LOW){
+    temp =  result*0.02-273.15+1;  //液体温度
+    }
+  else{
+    temp =  result*0.02-273.15+2.7;  //人体温度
+    }
+  key();
+  beep();
+  //Oled屏显示
+  u8g.firstPage();  
+  do {
+  draw();
+  u8g.setPrintPos(40,35);//显示实时温度
+  u8g.print(temp);
+  u8g.setPrintPos(55,55);//显示温度上限
+  u8g.print(H);
+  } while( u8g.nextPage() );
+  delay(1500);//测量间隔
+ 
+ }
